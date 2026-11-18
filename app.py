@@ -19,7 +19,7 @@ from streamlit_folium import st_folium
 
 st.set_page_config(page_title="UChicago Campus Divvy Forecast", page_icon="🚲", layout="wide")
 
-APP_DIR = Path(__file__).parent / "app_files"
+APP_DIR = Path(__file__).parent
 TZ = "America/Chicago"
 GBFS_ROOT = "https://gbfs.lyft.com/gbfs/2.3/chi/gbfs.json"
 FORECAST_HOURS = 48
