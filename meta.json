@@ -1,0 +1,74 @@
+{
+  "features": [
+    "campus_station",
+    "hour_of_day",
+    "day_of_week",
+    "is_weekend",
+    "month",
+    "term_period",
+    "week_of_quarter",
+    "is_holiday",
+    "feels_like_f",
+    "temp_f",
+    "precip_in",
+    "snow_in",
+    "wind_mph",
+    "weather_code"
+  ],
+  "categorical_features": [
+    "campus_station",
+    "term_period"
+  ],
+  "station_categories": [
+    "Blackstone Ave & 59th St",
+    "Drexel Ave & 60th St",
+    "Ellis Ave & 55th St",
+    "Ellis Ave & 58th St",
+    "Ellis Ave & 60th St",
+    "Harper Ave & 59th St",
+    "University Ave & 57th St",
+    "University Ave & 59th St",
+    "Woodlawn Ave & 58th St"
+  ],
+  "term_categories": [
+    "early_summer_break",
+    "finals",
+    "instruction",
+    "late_summer_gap",
+    "o_week",
+    "post_finals",
+    "pre_orientation",
+    "reading_period",
+    "september_term",
+    "spring_break",
+    "summer_quarter",
+    "thanksgiving",
+    "winter_break"
+  ],
+  "trained_through": "2026-10-31",
+  "calendar_through": "2027-06-05",
+  "n_trees": 860,
+  "test_period": "May - Oct 2026",
+  "test_results": {
+    "Baseline (historical average)": {
+      "MAE": 1.098,
+      "RMSE": 2.007,
+      "Poisson deviance": 1.61
+    },
+    "Poisson regression": {
+      "MAE": 1.017,
+      "RMSE": 1.756,
+      "Poisson deviance": 1.363
+    },
+    "Poisson + station x hour": {
+      "MAE": 0.965,
+      "RMSE": 1.663,
+      "Poisson deviance": 1.274
+    },
+    "LightGBM": {
+      "MAE": 0.913,
+      "RMSE": 1.596,
+      "Poisson deviance": 1.166
+    }
+  }
+}

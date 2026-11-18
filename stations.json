@@ -1,0 +1,56 @@
+[
+  {
+    "campus_station":"University Ave & 57th St",
+    "lat":41.791478,
+    "lng":-87.599861,
+    "avg_trips_per_hour":2.6519920925
+  },
+  {
+    "campus_station":"Ellis Ave & 60th St",
+    "lat":41.7850971464,
+    "lng":-87.6010727606,
+    "avg_trips_per_hour":2.1880322384
+  },
+  {
+    "campus_station":"Ellis Ave & 55th St",
+    "lat":41.7943006205,
+    "lng":-87.6014497734,
+    "avg_trips_per_hour":2.1269768856
+  },
+  {
+    "campus_station":"Blackstone Ave & 59th St",
+    "lat":41.787877,
+    "lng":-87.590461,
+    "avg_trips_per_hour":1.0734108881
+  },
+  {
+    "campus_station":"Woodlawn Ave & 58th St",
+    "lat":41.789381,
+    "lng":-87.596479,
+    "avg_trips_per_hour":0.9674574209
+  },
+  {
+    "campus_station":"Ellis Ave & 58th St",
+    "lat":41.788746,
+    "lng":-87.601334,
+    "avg_trips_per_hour":0.9449893552
+  },
+  {
+    "campus_station":"University Ave & 59th St",
+    "lat":41.787878,
+    "lng":-87.598906,
+    "avg_trips_per_hour":0.7195863747
+  },
+  {
+    "campus_station":"Drexel Ave & 60th St",
+    "lat":41.785861,
+    "lng":-87.604553,
+    "avg_trips_per_hour":0.5181721411
+  },
+  {
+    "campus_station":"Harper Ave & 59th St",
+    "lat":41.7879428129,
+    "lng":-87.5883151702,
+    "avg_trips_per_hour":0.3143248175
+  }
+]
