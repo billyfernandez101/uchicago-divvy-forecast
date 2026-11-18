@@ -15,11 +15,13 @@ import numpy as np
 import pandas as pd
 import requests
 import streamlit as st
+from requests.adapters import HTTPAdapter
 from streamlit_folium import st_folium
+from urllib3.util.retry import Retry
 
 st.set_page_config(page_title="UChicago Campus Divvy Forecast", page_icon="🚲", layout="wide")
 
-APP_DIR = Path(__file__).parent
+APP_DIR = Path(__file__).parent  # model and data files sit next to app.py in the repo
 TZ = "America/Chicago"
 GBFS_ROOT = "https://gbfs.lyft.com/gbfs/2.3/chi/gbfs.json"
 FORECAST_HOURS = 48
@@ -123,17 +125,35 @@ def load_static():
     return meta, stations, boundary, cal
 
 
+@st.cache_resource
+def http_session():
+    """A shared connection that automatically retries slow or failed requests."""
+    s = requests.Session()
+    retry = Retry(total=4, connect=4, read=4, backoff_factor=1.5,
+                  status_forcelist=[429, 500, 502, 503, 504], allowed_methods=["GET"])
+    s.mount("https://", HTTPAdapter(max_retries=retry))
+    s.headers["User-Agent"] = "uchicago-campus-divvy-forecast (student project)"
+    return s
+
+
+@st.cache_resource
+def last_good_forecast():
+    """Keeps the most recent successful weather forecast in case the weather service is slow."""
+    return {}
+
+
 @st.cache_data(ttl=1800)  # refresh the weather forecast every 30 minutes
 def get_weather_forecast():
     params = {
         "latitude": 41.789, "longitude": -87.599,
         "hourly": "temperature_2m,apparent_temperature,precipitation,snowfall,"
                   "wind_speed_10m,weather_code",
-        "timezone": TZ, "forecast_days": 4,
+        "timezone": TZ, "forecast_days": 3,
         "temperature_unit": "fahrenheit", "wind_speed_unit": "mph",
         "precipitation_unit": "inch",
     }
-    r = requests.get("https://api.open-meteo.com/v1/forecast", params=params, timeout=20)
+    r = http_session().get("https://api.open-meteo.com/v1/forecast", params=params,
+                           timeout=(10, 45))
     r.raise_for_status()
     w = pd.DataFrame(r.json()["hourly"])
     w["hour"] = pd.to_datetime(w["time"])
@@ -152,12 +172,13 @@ def distance_m(lat1, lng1, lat2, lng2):
 
 @st.cache_data(ttl=60)  # refresh live availability every minute
 def get_live_status(stations):
-    root = requests.get(GBFS_ROOT, timeout=15).json()["data"]
+    s = http_session()
+    root = s.get(GBFS_ROOT, timeout=(10, 30)).json()["data"]
     lang = "en" if "en" in root else next(iter(root))
     urls = {f["name"]: f["url"] for f in root[lang]["feeds"]}
-    info = pd.DataFrame(requests.get(urls["station_information"], timeout=15)
+    info = pd.DataFrame(s.get(urls["station_information"], timeout=(10, 30))
                         .json()["data"]["stations"])
-    status = pd.DataFrame(requests.get(urls["station_status"], timeout=15)
+    status = pd.DataFrame(s.get(urls["station_status"], timeout=(10, 30))
                           .json()["data"]["stations"])
     live = info.merge(status, on="station_id", suffixes=("", "_status"))
 
@@ -234,12 +255,22 @@ st.title("🚲 UChicago Campus Divvy Forecast")
 st.caption("Hourly bike demand forecasts for the 9 Divvy stations on campus, "
            "based on the weather forecast and the academic calendar.")
 
+backup = last_good_forecast()
 try:
     weather = get_weather_forecast()
-    preds, missing_calendar = make_predictions(model, meta, cal, weather, station_names)
-except Exception as e:
-    st.error(f"Couldn't load the weather forecast right now ({e}). Try again in a few minutes.")
-    st.stop()
+    backup["weather"] = weather
+    backup["fetched_at"] = pd.Timestamp.now(tz=TZ)
+except Exception:
+    if "weather" in backup:
+        weather = backup["weather"]
+        st.info("The weather service is slow right now, so these forecasts use the weather "
+                f"forecast from {backup['fetched_at']:%-I:%M %p}.")
+    else:
+        st.error("The weather service isn't responding right now, so forecasts can't load. "
+                 "Refresh the page in a minute or two.")
+        st.stop()
+
+preds, missing_calendar = make_predictions(model, meta, cal, weather, station_names)
 
 if missing_calendar:
     st.warning(f"The academic calendar in this app only runs through {meta['calendar_through']}. "
