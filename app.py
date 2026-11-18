@@ -21,7 +21,7 @@ from urllib3.util.retry import Retry
 
 st.set_page_config(page_title="UChicago Campus Divvy Forecast", page_icon="🚲", layout="wide")
 
-APP_DIR = Path(__file__).parent  # model and data files sit next to app.py in the repo
+APP_DIR = Path(__file__).parent  
 TZ = "America/Chicago"
 GBFS_ROOT = "https://gbfs.lyft.com/gbfs/2.3/chi/gbfs.json"
 FORECAST_HOURS = 48
@@ -43,7 +43,7 @@ TERM_LABELS = {
 }
 
 # ---------------------------------------------------------------------------
-# Text for the "How it works" tab. Edit this freely; it's plain Markdown.
+# Text for the "How it works" tab
 # ---------------------------------------------------------------------------
 ABOUT_TEXT = """
 ### What this is
