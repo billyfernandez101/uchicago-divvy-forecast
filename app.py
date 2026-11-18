@@ -329,7 +329,7 @@ with tab_map:
     next_hr = preds[preds["hour"] == preds["hour"].min()][["campus_station", "pred"]]
     mp = stations.merge(next_hr, on="campus_station").merge(live, on="campus_station", how="left")
 
-    m = folium.Map(location=[41.789, -87.597], zoom_start=15, tiles="cartodbpositron")
+        m = folium.Map(location=[41.789, -87.597], zoom_start=15, tiles="OpenStreetMap")
     folium.Polygon(boundary, color="#800000", weight=3, fill=True, fill_opacity=0.05,
                    tooltip="UChicago campus (Clery Act boundary)").add_to(m)
     for _, r in mp.iterrows():
