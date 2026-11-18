@@ -19,12 +19,14 @@ from requests.adapters import HTTPAdapter
 from streamlit_folium import st_folium
 from urllib3.util.retry import Retry
 
-st.set_page_config(page_title="UChicago Campus Divvy Forecast", page_icon="🚲", layout="wide")
+st.set_page_config(page_title="UChicago Campus Divvy Forecast", layout="centered")
 
 APP_DIR = Path(__file__).parent  # model and data files sit next to app.py in the repo
 TZ = "America/Chicago"
 GBFS_ROOT = "https://gbfs.lyft.com/gbfs/2.3/chi/gbfs.json"
 FORECAST_HOURS = 48
+AVAILABILITY_HOURS = 12
+MAROON = "#800000"
 
 TERM_LABELS = {
     "instruction": "Classes in session",
@@ -42,22 +44,61 @@ TERM_LABELS = {
     "o_week": "O-Week",
 }
 
-# ---------------------------------------------------------------------------
-# Text for the "How it works" tab. Edit this freely; it's plain Markdown.
-# ---------------------------------------------------------------------------
-ABOUT_TEXT = """
-### What this is
+# Light styling: tighter spacing and smaller headings on phones.
+st.markdown("""
+<style>
+.block-container {padding-top: 2rem; padding-bottom: 3rem;}
+@media (max-width: 640px) {
+  .block-container {padding-left: 1rem; padding-right: 1rem; padding-top: 1.25rem;}
+  h1 {font-size: 1.65rem !important;}
+  h3 {font-size: 1.15rem !important;}
+  [data-testid="stMetricValue"] {font-size: 1.6rem;}
+}
+</style>
+""", unsafe_allow_html=True)
 
-This site predicts how many Divvy bikes will be taken out of each station on the
-UChicago campus over the next 48 hours. I built it to answer a simple question:
-will there be a bike when I need one?
+# ---------------------------------------------------------------------------
+# Text for the "How it works" tab. Edit freely; it's plain Markdown.
+# The results table is shown between the two parts.
+# ---------------------------------------------------------------------------
+ABOUT_PART_1 = """
+### What this site does
+
+This site forecasts how many Divvy bikes will be taken out of each station on the
+UChicago campus, hour by hour, for the next two days. It also shows how many bikes are
+at each station right now. I built it because I wanted to know whether a bike would be
+there when I needed one.
+
+### How to read the forecast
+
+**Expected departures** is the number of bikes the model expects people to take from a
+station during that hour. It's an average, so a forecast of 2.4 means you'd usually see
+2 or 3 bikes taken out, sometimes more and sometimes fewer.
+
+**Bikes available now** comes from Divvy's live feed and updates about once a minute.
+
+**Bikes left if none are returned** starts from the live count and subtracts the expected
+departures hour by hour. It's a worst case. People return bikes all day, especially at
+busy stations, so the real number is usually higher. If this line stays above zero, you
+can be fairly confident a bike will be there.
+
+### How a forecast is made
+
+Each forecast combines four things: the station, the time of day and day of the week,
+where we are in the academic calendar (classes, finals, breaks, O-Week), and the weather
+forecast for that hour. These go into a LightGBM model, a type of machine learning model
+that builds hundreds of small decision trees, each one correcting the mistakes of the
+ones before it.
+
+The model learned from about 300,000 Divvy trips taken between November 2023 and
+October 2026. The weather forecast refreshes every 30 minutes, so the predictions shift
+as the forecast changes.
 
 ### The data
 
 - **Trips:** every Divvy trip from Nov 2023 to Oct 2026 that started at one of the 9 docked
-  stations within 100 meters of the university's official campus boundary (the Clery Act map).
-  That's about 300,000 trips. Undocked e-bike trips are left out because Divvy rounds
-  their locations to about 1 km.
+  stations within 100 meters of the university's official campus boundary (the Clery Act
+  map). Undocked e-bike trips are left out because Divvy rounds their locations to about 1 km.
 - **Weather:** hourly temperature, rain, snow, and wind from Open-Meteo.
 - **Academic calendar:** quarter dates, reading periods, finals, breaks, O-Week, and
   pre-orientation from the registrar.
@@ -76,28 +117,35 @@ O-Week is busier than summer quarter despite having a much smaller population on
 which suggests new students ride a lot. With only three O-Weeks in the data, that's
 suggestive rather than proven.
 
-### Comparing models
+### Testing the model
 
-I compared three models on six months of data they never saw (May - Oct 2026):
+To test the model fairly, I trained it on data through April 2026 and then checked its
+forecasts against May to October 2026, six months it had never seen. I compared it with a
+simple historical average and with two versions of a Poisson regression, a standard
+statistical model for count data:
+"""
 
-{results_table}
+ABOUT_PART_2 = """
+Lower is better in every column. MAE is the average miss, in trips per station per hour.
+RMSE weighs big misses more heavily. Poisson deviance is a standard accuracy measure for
+count data.
 
-LightGBM, a gradient-boosted tree model, beat a standard Poisson regression by about 10%.
-When I let the regression give each station its own hour-by-hour pattern, the gap fell by
-half. Most of what machine learning added came from that one interaction. Its remaining edge
-is mostly in summer and rare parts of the calendar.
+LightGBM beat the standard Poisson regression by about 10%. When I let the regression give
+each station its own hour-by-hour pattern, the gap fell by half, so most of what machine
+learning added came from that one pattern. Its remaining edge is mostly in summer and in
+rare parts of the calendar.
 
-Standard errors in the regression are clustered by day, since stations share the same
-weather and campus events within a day. That made the confidence intervals several times wider
-than the default ones.
+Standard errors in the regression are clustered by day, since all stations share the same
+weather and campus events on a given day. That made the confidence intervals several times
+wider than the default ones.
 
 ### Limitations
 
-- The model predicts **departures**, not whether a station will run out. It doesn't account
-  for bikes being returned, so the "may run short" warning is only a rough guide.
+- The model predicts **departures**, not returns, so it can't say exactly how many bikes a
+  station will have later. The "bikes left" chart is a worst case for that reason.
 - The data only shows trips that happened. When a station is empty, demand gets undercounted.
 - Forecasts for a single station are noisier than the campus-wide total.
-- The academic calendar runs through {calendar_through}. After that the forecasts stop until
+- The academic calendar runs through {calendar_through}. After that, forecasts stop until
   new registrar dates are added.
 
 ### Credits
@@ -109,7 +157,7 @@ Campus boundary: UChicago Department of Safety & Security Clery Act map (March 2
 
 
 # ---------------------------------------------------------------------------
-# Loading data and models
+# Loading data, models, weather, and live station status
 # ---------------------------------------------------------------------------
 @st.cache_resource
 def load_model():
@@ -184,14 +232,14 @@ def get_live_status(stations):
 
     # Match each campus station to the nearest live station (within 75 m)
     rows = []
-    for _, s in stations.iterrows():
-        d = distance_m(s["lat"], s["lng"], live["lat"].values, live["lon"].values)
+    for _, stn in stations.iterrows():
+        d = distance_m(stn["lat"], stn["lng"], live["lat"].values, live["lon"].values)
         i = int(d.argmin())
         if d[i] > 75:
             continue
         row = live.iloc[i]
         rows.append({
-            "campus_station": s["campus_station"],
+            "campus_station": stn["campus_station"],
             "bikes": int(row.get("num_bikes_available", 0) or 0),
             "ebikes": int(row.get("num_ebikes_available", 0) or 0),
             "docks": int(row.get("num_docks_available", 0) or 0),
@@ -229,19 +277,77 @@ def make_predictions(model, meta, cal, weather, station_names):
     return grid, missing_calendar
 
 
-def hourly_chart(df, title):
-    return (alt.Chart(df, title=title)
-            .mark_bar(color="#800000")
+# ---------------------------------------------------------------------------
+# Display helpers
+# ---------------------------------------------------------------------------
+def describe_weather(code):
+    """Plain-English description of an Open-Meteo weather code."""
+    code = int(code)
+    if code == 0:
+        return "clear"
+    if code in (1, 2):
+        return "partly cloudy"
+    if code == 3:
+        return "cloudy"
+    if code in (45, 48):
+        return "fog"
+    if 51 <= code <= 57:
+        return "drizzle"
+    if 61 <= code <= 67:
+        return "rain"
+    if 71 <= code <= 77:
+        return "snow"
+    if 80 <= code <= 82:
+        return "rain showers"
+    if code in (85, 86):
+        return "snow showers"
+    if code >= 95:
+        return "thunderstorms"
+    return ""
+
+
+def project_bikes(bikes_now, station_preds, hours=AVAILABILITY_HOURS):
+    """Worst case: start from the live count and subtract expected departures,
+    assuming no bikes are returned. Only the rest of the current hour counts."""
+    now = pd.Timestamp.now(tz=TZ).tz_localize(None)
+    sp = station_preds.iloc[:hours]
+    share_of_hour = np.ones(len(sp))
+    share_of_hour[0] = 1 - now.minute / 60
+    left = bikes_now - np.cumsum(sp["pred"].values * share_of_hour)
+    times = [now] + list(sp["hour"] + pd.Timedelta(hours=1))
+    bikes = [bikes_now] + list(np.maximum(np.floor(left), 0))
+    return pd.DataFrame({"time": times, "bikes": bikes})
+
+
+TIME_AXIS = alt.Axis(format="%a %-I %p", labelAngle=0, labelOverlap="greedy", grid=False)
+
+
+def departures_chart(df):
+    return (alt.Chart(df)
+            .mark_bar(color=MAROON)
             .encode(
-                x=alt.X("hour:T", title=None, axis=alt.Axis(format="%a %-I %p", labelAngle=0)),
+                x=alt.X("hour:T", title=None, axis=TIME_AXIS),
                 y=alt.Y("pred:Q", title="Expected departures"),
                 tooltip=[
                     alt.Tooltip("hour:T", title="Hour", format="%a %b %-d, %-I %p"),
                     alt.Tooltip("pred:Q", title="Expected departures", format=".1f"),
-                    alt.Tooltip("temp_f:Q", title="Temp (°F)", format=".0f"),
+                    alt.Tooltip("temp_f:Q", title="Temperature (°F)", format=".0f"),
                     alt.Tooltip("precip_in:Q", title="Rain (in)", format=".2f"),
                 ])
-            .properties(height=280))
+            .properties(height=230))
+
+
+def availability_chart(df):
+    return (alt.Chart(df)
+            .mark_line(color=MAROON, point=alt.OverlayMarkDef(color=MAROON, size=35))
+            .encode(
+                x=alt.X("time:T", title=None, axis=TIME_AXIS),
+                y=alt.Y("bikes:Q", title="Bikes", scale=alt.Scale(domainMin=0)),
+                tooltip=[
+                    alt.Tooltip("time:T", title="Time", format="%a %-I:%M %p"),
+                    alt.Tooltip("bikes:Q", title="Bikes left (worst case)", format=".0f"),
+                ])
+            .properties(height=210))
 
 
 # ---------------------------------------------------------------------------
@@ -251,9 +357,9 @@ model = load_model()
 meta, stations, boundary, cal = load_static()
 station_names = stations["campus_station"].tolist()
 
-st.title("🚲 UChicago Campus Divvy Forecast")
-st.caption("Hourly bike demand forecasts for the 9 Divvy stations on campus, "
-           "based on the weather forecast and the academic calendar.")
+st.title("UChicago Campus Divvy Forecast")
+st.write("Hourly forecasts of bike demand at the 9 Divvy stations on campus, "
+         "based on the weather forecast and the academic calendar.")
 
 backup = last_good_forecast()
 try:
@@ -283,74 +389,99 @@ try:
 except Exception:
     live = pd.DataFrame(columns=["campus_station", "bikes", "ebikes", "docks", "renting"])
 
-today = preds.iloc[0]
-period = TERM_LABELS.get(today["term_period"], today["term_period"])
-if today["term_period"] == "instruction" and today["week_of_quarter"] > 0:
-    period += f", week {today['week_of_quarter']}"
-st.markdown(f"**Academic calendar today:** {period}")
+current = preds.iloc[0]
+period = TERM_LABELS.get(current["term_period"], current["term_period"])
+if current["term_period"] == "instruction" and current["week_of_quarter"] > 0:
+    period += f", week {current['week_of_quarter']}"
+conditions = describe_weather(current["weather_code"])
+weather_now = f"{current['temp_f']:.0f}°F" + (f", {conditions}" if conditions else "")
+st.caption(f"Academic calendar: {period}  ·  Weather now: {weather_now}")
 
-tab_forecast, tab_map, tab_about = st.tabs(["Forecast", "Live map", "How it works"])
+tab_forecast, tab_map, tab_about = st.tabs(["Forecast", "Map", "How it works"])
 
 # ---- Forecast tab ----
 with tab_forecast:
-    station = st.selectbox("Station", station_names)
+    station = st.selectbox("Choose a station", station_names)
+    window = st.radio("Show the next", ["12 hours", "24 hours", "48 hours"],
+                      index=1, horizontal=True)
+    n_hours = int(window.split()[0])
+
     sp = preds[preds["campus_station"] == station].sort_values("hour")
-    next_hour = sp["pred"].iloc[0]
-    next_6 = sp["pred"].iloc[:6].sum()
+    sp_window = sp.iloc[:n_hours]
 
     lv = live[live["campus_station"] == station]
+    bikes = int(lv["bikes"].iloc[0]) if len(lv) else None
+
     c1, c2, c3 = st.columns(3)
-    if len(lv):
-        bikes = int(lv["bikes"].iloc[0])
+    if bikes is not None:
         c1.metric("Bikes available now", bikes,
                   help=f"Includes {int(lv['ebikes'].iloc[0])} e-bikes. Live from Divvy.")
     else:
-        bikes = None
-        c1.metric("Bikes available now", "n/a", help="Live data unavailable right now.")
-    c2.metric("Expected departures, next hour", f"{next_hour:.1f}")
-    c3.metric("Expected departures, next 6 hours", f"{next_6:.0f}")
+        c1.metric("Bikes available now", "n/a", help="Live data is unavailable right now.")
+    c2.metric("Expected departures, next hour", f"{sp['pred'].iloc[0]:.1f}")
+    c3.metric("Expected departures, next 6 hours", f"{sp['pred'].iloc[:6].sum():.0f}")
 
-    if bikes is not None and bikes < next_hour:
+    peak = sp_window.loc[sp_window["pred"].idxmax()]
+    st.write(f"Busiest hour in the next {n_hours} hours: **{peak['hour']:%A %-I %p}**, "
+             f"with about {peak['pred']:.1f} expected departures.")
+
+    if bikes is not None and bikes < sp["pred"].iloc[0]:
         st.warning("Bikes may run short here in the next hour. This doesn't account for "
                    "bikes being returned, so treat it as a rough guide.")
 
-    st.altair_chart(hourly_chart(sp, f"{station}: next {FORECAST_HOURS} hours"),
-                    use_container_width=True)
+    st.subheader("Bikes left if none are returned")
+    if bikes is not None:
+        st.altair_chart(availability_chart(project_bikes(bikes, sp)), width="stretch")
+        st.caption(f"A worst case for the next {AVAILABILITY_HOURS} hours: today's live count "
+                   "minus expected departures. Returns usually keep the real number higher.")
+    else:
+        st.caption("Live bike counts are unavailable right now, so this chart can't be shown.")
 
+    st.subheader("Expected departures by hour")
+    st.altair_chart(departures_chart(sp_window), width="stretch")
+
+    st.subheader("All campus stations combined")
     campus = (preds.groupby("hour", as_index=False)
               .agg(pred=("pred", "sum"), temp_f=("temp_f", "first"),
-                   precip_in=("precip_in", "first")))
-    st.altair_chart(hourly_chart(campus, "All 9 campus stations combined"),
-                    use_container_width=True)
-    st.caption("Campus-wide totals are more reliable than single-station forecasts.")
+                   precip_in=("precip_in", "first"))
+              .iloc[:n_hours])
+    st.altair_chart(departures_chart(campus), width="stretch")
+    st.caption("Campus-wide totals are more reliable than forecasts for a single station.")
 
-# ---- Live map tab ----
+# ---- Map tab ----
 with tab_map:
     next_hr = preds[preds["hour"] == preds["hour"].min()][["campus_station", "pred"]]
     mp = stations.merge(next_hr, on="campus_station").merge(live, on="campus_station", how="left")
 
     m = folium.Map(location=[41.789, -87.597], zoom_start=15, tiles="OpenStreetMap")
-    folium.Polygon(boundary, color="#800000", weight=3, fill=True, fill_opacity=0.05,
+    folium.Polygon(boundary, color=MAROON, weight=3, fill=True, fill_opacity=0.05,
                    tooltip="UChicago campus (Clery Act boundary)").add_to(m)
     for _, r in mp.iterrows():
         if pd.isna(r.get("bikes")):
-            color, bikes_txt = "gray", "live data unavailable"
+            color, bikes_txt = "gray", "Live data unavailable"
         else:
             color = "red" if r["bikes"] == 0 else "orange" if r["bikes"] <= 2 else "green"
-            bikes_txt = f"{int(r['bikes'])} bikes ({int(r['ebikes'])} e-bikes), {int(r['docks'])} open docks"
+            bikes_txt = (f"{int(r['bikes'])} bikes ({int(r['ebikes'])} e-bikes), "
+                         f"{int(r['docks'])} open docks")
+        label = (f"<b>{r['campus_station']}</b><br>{bikes_txt}"
+                 f"<br>Expected departures next hour: {r['pred']:.1f}")
         folium.CircleMarker(
             [r["lat"], r["lng"]], radius=6 + 3 * min(r["pred"], 6),
             color=color, fill=True, fill_opacity=0.8,
-            tooltip=f"<b>{r['campus_station']}</b><br>{bikes_txt}"
-                    f"<br>Expected departures next hour: {r['pred']:.1f}",
+            tooltip=label, popup=folium.Popup(label, max_width=260),
         ).add_to(m)
-    st_folium(m, height=560, use_container_width=True, returned_objects=[])
-    st.caption("Color = bikes available now (green 3+, orange 1-2, red 0). "
-               "Size = expected departures in the next hour.")
+    st_folium(m, height=450, use_container_width=True, returned_objects=[])
+    st.caption("Tap or hover over a station for details. Color shows bikes available now "
+               "(green 3 or more, orange 1 to 2, red none). Size shows expected departures "
+               "in the next hour.")
 
 # ---- How it works tab ----
 with tab_about:
+    st.markdown(ABOUT_PART_1)
     results = pd.DataFrame(meta["test_results"]).T.round(3)
-    table_md = results.to_markdown() if hasattr(results, "to_markdown") else results.to_string()
-    st.markdown(ABOUT_TEXT.format(results_table=table_md,
-                                  calendar_through=meta["calendar_through"]))
+    results.index.name = "Model"
+    st.dataframe(results, width="stretch")
+    st.markdown(ABOUT_PART_2.format(calendar_through=meta["calendar_through"]))
+
+st.caption("Live bike counts update every minute. Weather from Open-Meteo, updated every "
+           "30 minutes. Not affiliated with Divvy or the University of Chicago.")
