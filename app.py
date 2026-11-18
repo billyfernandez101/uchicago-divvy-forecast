@@ -21,7 +21,7 @@ from urllib3.util.retry import Retry
 
 st.set_page_config(page_title="UChicago Campus Divvy Forecast", page_icon="🚲", layout="wide")
 
-APP_DIR = Path(__file__).parent  
+APP_DIR = Path(__file__).parent  # model and data files sit next to app.py in the repo
 TZ = "America/Chicago"
 GBFS_ROOT = "https://gbfs.lyft.com/gbfs/2.3/chi/gbfs.json"
 FORECAST_HOURS = 48
@@ -43,7 +43,7 @@ TERM_LABELS = {
 }
 
 # ---------------------------------------------------------------------------
-# Text for the "How it works" tab
+# Text for the "How it works" tab. Edit this freely; it's plain Markdown.
 # ---------------------------------------------------------------------------
 ABOUT_TEXT = """
 ### What this is
@@ -329,7 +329,7 @@ with tab_map:
     next_hr = preds[preds["hour"] == preds["hour"].min()][["campus_station", "pred"]]
     mp = stations.merge(next_hr, on="campus_station").merge(live, on="campus_station", how="left")
 
-        m = folium.Map(location=[41.789, -87.597], zoom_start=15, tiles="OpenStreetMap")
+    m = folium.Map(location=[41.789, -87.597], zoom_start=15, tiles="OpenStreetMap")
     folium.Polygon(boundary, color="#800000", weight=3, fill=True, fill_opacity=0.05,
                    tooltip="UChicago campus (Clery Act boundary)").add_to(m)
     for _, r in mp.iterrows():
